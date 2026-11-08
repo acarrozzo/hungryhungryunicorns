@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Hungry Hungry Unicorns</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ctext y=%27.9em%27 font-size=%2790%27%3E🦄%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="ui">
+
+  <!-- HOME -->
+  <section id="home" class="screen">
+    <h1>🦄 Hungry Hungry<br>Unicorns 🦄</h1>
+    <p class="tagline">Gobble the balls! Grow big! Sparkle! ✨</p>
+    <button class="big" id="btn-play">▶ Play</button>
+    <p class="hint">Arrow keys · WASD · Mouse · or touch the screen</p>
+  </section>
+
+  <!-- SETUP -->
+  <section id="setup" class="screen hidden">
+    <h2>How many unicorns?</h2>
+    <div class="row" id="player-row">
+      <button class="choice" data-players="1">🦄 One</button>
+      <button class="choice" data-players="2">🦄🦄 Two</button>
+    </div>
+
+    <h2>Which game?</h2>
+    <div class="row" id="mode-row">
+      <button class="choice" data-mode="timer">⏱️ Timer</button>
+      <button class="choice" data-mode="eatall">🎯 Eat Them All</button>
+      <button class="choice" data-mode="free">♾️ Free Play</button>
+    </div>
+    <p class="hint" id="mode-hint"></p>
+
+    <div class="row pickers">
+      <div class="picker" id="picker-1">
+        <canvas class="preview" width="400" height="320"></canvas>
+        <input class="name" maxlength="12" placeholder="Unicorn 1" aria-label="Unicorn 1 name">
+        <div class="swatches"></div>
+        <p class="hint ctrl">⬅️⬆️⬇️➡️ arrows · mouse · left side</p>
+      </div>
+      <div class="picker hidden" id="picker-2">
+        <canvas class="preview" width="400" height="320"></canvas>
+        <input class="name" maxlength="12" placeholder="Unicorn 2" aria-label="Unicorn 2 name">
+        <div class="swatches"></div>
+        <p class="hint ctrl">W A S D keys · right side</p>
+      </div>
+    </div>
+
+    <div class="row">
+      <button class="small" id="btn-back">← Back</button>
+      <button class="big" id="btn-go">GO! 🌈</button>
+    </div>
+  </section>
+
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <div class="score" id="score-1"><span class="dot"></span><span class="num">0</span><span class="power"></span></div>
+    <div id="center">
+      <div id="timer">1:00</div>
+      <div class="row tight">
+        <button class="iconbtn" id="btn-pause" aria-label="Pause">⏸</button>
+        <button class="iconbtn" id="btn-mute" aria-label="Sound">🔊</button>
+      </div>
+    </div>
+    <div class="score hidden" id="score-2"><span class="power"></span><span class="num">0</span><span class="dot"></span></div>
+  </div>
+
+  <!-- PAUSE -->
+  <section id="pause" class="screen overlay hidden">
+    <div class="panel">
+      <h2>Paused</h2>
+      <button class="big" id="btn-resume">▶ Keep Playing</button>
+      <button class="small" id="btn-finish">🏁 All Done</button>
+      <button class="small" id="btn-pause-home">🏠 Home</button>
+    </div>
+  </section>
+
+  <!-- RESULTS -->
+  <section id="results" class="screen overlay hidden">
+    <div class="panel">
+      <h2 id="results-title">🎉 Yay! 🎉</h2>
+      <div id="results-cards"></div>
+      <p class="hint" id="results-best"></p>
+      <div class="row">
+        <button class="big" id="btn-again">🔁 Play Again</button>
+      </div>
+      <div class="row">
+        <button class="small" id="btn-change">🎨 Change Unicorns</button>
+        <button class="small" id="btn-home">🏠 Home</button>
+      </div>
+    </div>
+  </section>
+
+</div>
+<script src="game.js"></script>
+</body>
+</html>
