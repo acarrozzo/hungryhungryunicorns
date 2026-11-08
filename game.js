@@ -2,18 +2,20 @@
 'use strict';
 
 // ============================================================
-//  Hungry Hungry Unicorns  —  a fairy game for two sisters
+//  Hungry Hungry Unicorns  —  a fairy game for kids
 // ============================================================
 
 const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
+const ctx = canvas.getContext('2d', { alpha: false });
 const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
 
 let W = 0, H = 0, DPR = 1;
 const PLAY_TOP = 84;          // keep unicorns below the score bar
 const JOY_R = 60;             // touch joystick radius (2 players)
-const TIMER_SECONDS = 60;
+const TIMER_SECONDS = 30;
+const PIXEL_BUDGET = 3.5e6;   // cap canvas pixels so big retina iPads stay smooth
+const MAX_PARTICLES = 400;
 
 // ---------- helpers ----------
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -64,10 +66,11 @@ const POWERS = {
 const YUMS = ['Yum!', 'Nom nom!', 'Mmm!', 'Chomp!', 'Yummy!', 'Gobble!', 'Tasty!'];
 
 // ---------- save data ----------
-const DEFAULTS = { names: ['', ''], colors: [0, 1], players: 1, mode: 'timer', best: 0, muted: false };
+const DEFAULTS = { names: ['', ''], colors: [0, 1], players: 1, mode: 'timer', best: {}, muted: false };
 let save;
 try { save = Object.assign({}, DEFAULTS, JSON.parse(localStorage.getItem('hhu-save') || '{}')); }
 catch { save = Object.assign({}, DEFAULTS); }
+if (!save.best || typeof save.best !== 'object') save.best = {};   // older saves kept a single number
 function persist() { try { localStorage.setItem('hhu-save', JSON.stringify(save)); } catch { /* ignore */ } }
 
 // ---------- sound (all synthesized, no files) ----------
@@ -107,7 +110,7 @@ const Sound = {
 // ---------- state ----------
 const state = {
   screen: 'home', playing: false, paused: false, ended: false,
-  players: 1, mode: 'timer', countdown: 0, timeLeft: 0, targetBalls: 0,
+  players: 1, mode: 'timer', countdown: 0, timeLeft: 0, elapsed: 0, targetBalls: 0,
   unicorns: [], balls: [], particles: [], floaters: [],
   cheer: 0, lastTick: -1, winner: null, confetti: 0, demo: [],
 };
@@ -121,12 +124,22 @@ function show(...names) {
 
 // ---------- resize & scenery ----------
 function resize() {
-  DPR = Math.min(window.devicePixelRatio || 1, 2);
   W = window.innerWidth; H = window.innerHeight;
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  if (W * H * DPR * DPR > PIXEL_BUDGET) DPR = Math.max(1, Math.sqrt(PIXEL_BUDGET / (W * H)));
   canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
   canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ballSprites.clear();
   buildScenery();
+}
+
+// an offscreen canvas at screen resolution, drawn once and blitted every frame
+function makeLayer(draw) {
+  const cv = document.createElement('canvas');
+  cv.width = Math.max(1, Math.round(W * DPR)); cv.height = Math.max(1, Math.round(H * DPR));
+  const c = cv.getContext('2d'); c.setTransform(DPR, 0, 0, DPR, 0, 0); draw(c);
+  return cv;
 }
 window.addEventListener('resize', resize);
 
@@ -140,19 +153,36 @@ function buildScenery() {
   const n = Math.max(4, Math.floor(W / 140));
   g.crowd = []; for (let i = 0; i < n; i++) g.crowd.push({ x: (i + 0.5) * (W / n) + rand(-25, 25), y: g.groundY + rand(18, g.groundH - 18), s: rand(15, 21), phase: rand(0, 7), color: pick(FAIRY_COLORS), hair: pick(HAIR_COLORS), wing: pick(['rgba(255,255,255,.75)', 'rgba(200,240,255,.75)', 'rgba(255,220,250,.75)']) });
   g.hills = [{ y: g.groundY - 46, amp: 44, freq: 0.0035, off: 1.3, color: '#b7e4c7' }, { y: g.groundY - 22, amp: 30, freq: 0.0065, off: 4, color: '#95d5b2' }];
+
+  // static layers: sky + rainbow (far), hills + ground + mushrooms (near)
+  g.far = makeLayer(c => {
+    const sky = c.createLinearGradient(0, 0, 0, H);
+    sky.addColorStop(0, '#9fd3ff'); sky.addColorStop(0.55, '#e4c6ff'); sky.addColorStop(1, '#ffd9ec');
+    c.fillStyle = sky; c.fillRect(0, 0, W, H);
+    c.globalAlpha = 0.45; c.lineWidth = Math.max(10, W * 0.012);
+    MANE.forEach((m, i) => { c.strokeStyle = m; c.beginPath(); c.arc(W * 0.75, g.groundY + 40, Math.max(4, W * 0.34 - i * c.lineWidth), Math.PI, Math.PI * 2); c.stroke(); });
+    c.globalAlpha = 1;
+  });
+  g.near = makeLayer(c => {
+    for (const h of g.hills) {
+      c.fillStyle = h.color; c.beginPath(); c.moveTo(0, H);
+      for (let x = 0; x <= W + 20; x += 20) c.lineTo(x, h.y + Math.sin(x * h.freq + h.off) * h.amp);
+      c.lineTo(W, H); c.closePath(); c.fill();
+    }
+    const gr = c.createLinearGradient(0, g.groundY, 0, H); gr.addColorStop(0, '#7ccf86'); gr.addColorStop(1, '#4fae62');
+    c.fillStyle = gr; c.fillRect(0, g.groundY, W, g.groundH);
+    for (const m of g.mushrooms) {
+      c.fillStyle = '#fff3e0'; roundRect(c, m.x - m.size * 0.22, m.y - m.size * 0.6, m.size * 0.44, m.size * 0.7, m.size * 0.1); c.fill();
+      c.fillStyle = m.color; c.beginPath(); c.ellipse(m.x, m.y - m.size * 0.55, m.size * 0.6, m.size * 0.42, 0, Math.PI, Math.PI * 2); c.fill();
+      c.fillStyle = '#fff'; [[-0.3, -0.75], [0.1, -0.85], [0.35, -0.65]].forEach(([dx, dy]) => { c.beginPath(); c.arc(m.x + dx * m.size, m.y + dy * m.size, m.size * 0.08, 0, Math.PI * 2); c.fill(); });
+    }
+  });
 }
 
 // ---------- drawing: scenery ----------
 function drawBackground(t) {
   const g = scenery;
-  const sky = ctx.createLinearGradient(0, 0, 0, H);
-  sky.addColorStop(0, '#9fd3ff'); sky.addColorStop(0.55, '#e4c6ff'); sky.addColorStop(1, '#ffd9ec');
-  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
-
-  // rainbow arc
-  ctx.save(); ctx.globalAlpha = 0.45; ctx.lineWidth = Math.max(10, W * 0.012);
-  MANE.forEach((m, i) => { ctx.strokeStyle = m; ctx.beginPath(); ctx.arc(W * 0.75, g.groundY + 40, Math.max(4, W * 0.34 - i * ctx.lineWidth), Math.PI, Math.PI * 2); ctx.stroke(); });
-  ctx.restore();
+  ctx.drawImage(g.far, 0, 0, W, H);
 
   // clouds
   ctx.fillStyle = 'rgba(255,255,255,0.85)';
@@ -172,23 +202,8 @@ function drawBackground(t) {
   }
   ctx.globalAlpha = 1;
 
-  // hills
-  for (const h of g.hills) {
-    ctx.fillStyle = h.color; ctx.beginPath(); ctx.moveTo(0, H);
-    for (let x = 0; x <= W + 20; x += 20) ctx.lineTo(x, h.y + Math.sin(x * h.freq + h.off) * h.amp);
-    ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
-  }
-
-  // ground
-  const gr = ctx.createLinearGradient(0, g.groundY, 0, H); gr.addColorStop(0, '#7ccf86'); gr.addColorStop(1, '#4fae62');
-  ctx.fillStyle = gr; ctx.fillRect(0, g.groundY, W, g.groundH);
-
-  // mushrooms
-  for (const m of g.mushrooms) {
-    ctx.fillStyle = '#fff3e0'; roundRect(ctx, m.x - m.size * 0.22, m.y - m.size * 0.6, m.size * 0.44, m.size * 0.7, m.size * 0.1); ctx.fill();
-    ctx.fillStyle = m.color; ctx.beginPath(); ctx.ellipse(m.x, m.y - m.size * 0.55, m.size * 0.6, m.size * 0.42, 0, Math.PI, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#fff'; [[-0.3, -0.75], [0.1, -0.85], [0.35, -0.65]].forEach(([dx, dy]) => { ctx.beginPath(); ctx.arc(m.x + dx * m.size, m.y + dy * m.size, m.size * 0.08, 0, Math.PI * 2); ctx.fill(); });
-  }
+  // hills, ground, mushrooms
+  ctx.drawImage(g.near, 0, 0, W, H);
 
   // flowers
   for (const f of g.flowers) {
@@ -349,22 +364,35 @@ function drawUnicorn(c, u, t) {
 }
 
 // ---------- drawing: balls, particles, text ----------
+// balls are pre-rendered once per color/size, then blitted (gradients every frame are slow on iPad)
+const ballSprites = new Map();
+function ballSprite(b) {
+  const r = Math.round(b.r), key = `${b.kind}|${b.color}|${r}`;
+  let s = ballSprites.get(key);
+  if (s) return s;
+  const pad = 2, size = (r + pad) * 2;
+  const cv = document.createElement('canvas'); cv.width = cv.height = Math.ceil(size * DPR);
+  const c = cv.getContext('2d'); c.setTransform(DPR, 0, 0, DPR, 0, 0); c.translate(r + pad, r + pad);
+  c.fillStyle = b.color; c.beginPath(); c.arc(0, 0, r, 0, Math.PI * 2); c.fill();
+  const sh = c.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.2, 0, 0, r);
+  sh.addColorStop(0, 'rgba(255,255,255,0.55)'); sh.addColorStop(0.6, 'rgba(255,255,255,0)'); sh.addColorStop(1, 'rgba(0,0,0,0.22)');
+  c.fillStyle = sh; c.beginPath(); c.arc(0, 0, r, 0, Math.PI * 2); c.fill();
+  if (b.kind !== 'normal') {
+    c.font = `${r * 1.3}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText(POWERS[b.kind].icon, 0, r * 0.08);
+  }
+  s = { cv, size }; ballSprites.set(key, s);
+  return s;
+}
+
 function drawBall(c, b, t) {
-  const bobY = Math.sin(t * 2.5 + b.bob) * 3;
-  c.save(); c.translate(b.x, b.y + bobY); c.scale(b.scale, b.scale);
+  const y = b.y + Math.sin(t * 2.5 + b.bob) * 3;
   if (b.kind !== 'normal') {
     const pulse = 0.8 + 0.2 * Math.sin(t * 6 + b.bob);
-    c.fillStyle = `rgba(255,255,255,${0.4 * pulse})`; c.beginPath(); c.arc(0, 0, b.r * 1.9 * pulse, 0, Math.PI * 2); c.fill();
+    c.fillStyle = `rgba(255,255,255,${0.4 * pulse})`; c.beginPath(); c.arc(b.x, y, b.r * 1.9 * pulse * b.scale, 0, Math.PI * 2); c.fill();
   }
-  c.fillStyle = b.color; c.beginPath(); c.arc(0, 0, b.r, 0, Math.PI * 2); c.fill();
-  const sh = c.createRadialGradient(-b.r * 0.3, -b.r * 0.3, b.r * 0.2, 0, 0, b.r);
-  sh.addColorStop(0, 'rgba(255,255,255,0.55)'); sh.addColorStop(0.6, 'rgba(255,255,255,0)'); sh.addColorStop(1, 'rgba(0,0,0,0.22)');
-  c.fillStyle = sh; c.beginPath(); c.arc(0, 0, b.r, 0, Math.PI * 2); c.fill();
-  if (b.kind !== 'normal') {
-    c.font = `${b.r * 1.3}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle';
-    c.fillText(POWERS[b.kind].icon, 0, b.r * 0.08);
-  }
-  c.restore();
+  const s = ballSprite(b), d = s.size * b.scale;
+  c.drawImage(s.cv, b.x - d / 2, y - d / 2, d, d);
 }
 
 function makeSpark(x, y, color, life = 0.7) {
@@ -381,6 +409,7 @@ function addFloater(x, y, text, color, size = 26) { state.floaters.push({ x, y, 
 
 function updateParticles(dt, t) {
   const P = state.particles;
+  if (P.length > MAX_PARTICLES) P.splice(0, P.length - MAX_PARTICLES);
   for (let i = P.length - 1; i >= 0; i--) {
     const p = P[i];
     p.life -= dt; if (p.life <= 0) { P.splice(i, 1); continue; }
@@ -449,7 +478,7 @@ function startGame() {
   for (let i = 0; i < state.players; i++) state.unicorns.push(makeUnicorn(i, state.players));
   state.targetBalls = state.mode === 'eatall' ? 30 + 15 * (state.players - 1) : 16 + 8 * (state.players - 1);
   for (let i = 0; i < state.targetBalls; i++) spawnBall(true);
-  state.timeLeft = TIMER_SECONDS; state.countdown = 3.999; state.lastTick = -1;
+  state.timeLeft = TIMER_SECONDS; state.elapsed = 0; state.countdown = 3.999; state.lastTick = -1;
   state.playing = true; state.paused = false; state.ended = false; state.cheer = 0; state.winner = null; state.confetti = 0;
   buildHud(); show('hud'); updateHud(true);
 }
@@ -463,13 +492,20 @@ function endGame() {
   Sound.fanfare();
 
   let bestNote = '';
+  const timeStr = fmtTime(state.elapsed);
   if (state.mode === 'timer') {
-    const top = sorted[0].eaten;
-    if (top > (save.best || 0)) { save.best = top; persist(); bestNote = `🏆 New best score: ${top} balls!`; }
-    else if (save.best) bestNote = `Best ever: ${save.best} balls`;
+    const key = `timer${TIMER_SECONDS}`, top = sorted[0].eaten;
+    if (top > (save.best[key] || 0)) { save.best[key] = top; persist(); bestNote = `🏆 New best score: ${top} balls!`; }
+    else if (save.best[key]) bestNote = `Best ever: ${save.best[key]} balls`;
+  } else if (state.mode === 'eatall') {
+    const key = `eatall${state.players}`, prev = save.best[key];
+    if (!prev || state.elapsed < prev) { save.best[key] = state.elapsed; persist(); bestNote = prev ? `🏆 New fastest time: ${timeStr}!` : `⏱️ Time: ${timeStr}`; }
+    else bestNote = `⏱️ Time: ${timeStr}  ·  Fastest ever: ${fmtTime(prev)}`;
   }
-  $('#results-title').textContent = state.players === 1 ? `🎉 You ate ${sorted[0].eaten} balls! 🎉`
-    : tie ? "🎉 It's a tie! Everybody wins! 🎉" : `🎉 ${state.winner.name} wins! 🎉`;
+  let title;
+  if (state.players === 1) title = state.mode === 'eatall' ? `🎉 All gone in ${timeStr}! 🎉` : `🎉 You ate ${sorted[0].eaten} balls! 🎉`;
+  else title = tie ? "🎉 It's a tie! Everybody wins! 🎉" : `🎉 ${state.winner.name} wins! 🎉`;
+  $('#results-title').textContent = title;
   $('#results-cards').innerHTML = sorted.map(u =>
     `<div class="card ${u === state.winner ? 'winner' : ''}"><span class="dot" style="background:${swatchBg(u.color)}"></span><span class="cname">${escapeHtml(u.name)}</span><span>${u.eaten} 🟣</span></div>`).join('');
   $('#results-best').textContent = bestNote;
@@ -495,8 +531,11 @@ window.addEventListener('keydown', e => {
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 
+// Player 1 is on the left: W A S D (left of the keyboard) and the left half of a touch screen.
+// Player 2 is on the right: arrow keys, the mouse, and the right half of a touch screen.
+const mouseUnicorn = () => state.unicorns[state.players === 2 ? 1 : 0];
 function keyDir(u) {
-  const sets = state.players === 1 ? [ARROWS, WASD] : [u.i === 0 ? ARROWS : WASD];
+  const sets = state.players === 1 ? [ARROWS, WASD] : [u.i === 0 ? WASD : ARROWS];
   let x = 0, y = 0;
   for (const s of sets) { if (keys[s.left]) x -= 1; if (keys[s.right]) x += 1; if (keys[s.up]) y -= 1; if (keys[s.down]) y += 1; }
   return x || y ? { x: Math.sign(x), y: Math.sign(y) } : null;
@@ -506,7 +545,7 @@ canvas.addEventListener('pointerdown', e => {
   if (!state.playing || state.paused) return;
   Sound.init();
   const p = { x: e.clientX, y: e.clientY };
-  if (e.pointerType === 'mouse') { state.unicorns[0].target = p; return; }
+  if (e.pointerType === 'mouse') { mouseUnicorn().target = p; return; }
   if (state.players === 1) { const u = state.unicorns[0]; u.target = p; u.pointerId = e.pointerId; }
   else {
     const u = p.x < W / 2 ? state.unicorns[0] : state.unicorns[1];
@@ -516,7 +555,7 @@ canvas.addEventListener('pointerdown', e => {
 canvas.addEventListener('pointermove', e => {
   if (!state.playing) return;
   const p = { x: e.clientX, y: e.clientY };
-  if (e.pointerType === 'mouse') { if (!state.paused) state.unicorns[0].target = p; return; }
+  if (e.pointerType === 'mouse') { if (!state.paused) mouseUnicorn().target = p; return; }
   for (const u of state.unicorns) {
     if (u.joy && u.joy.id === e.pointerId) {
       let dx = p.x - u.joy.ox, dy = p.y - u.joy.oy; const d = Math.hypot(dx, dy);
@@ -602,6 +641,7 @@ function update(dt, t) {
   }
   for (const b of state.balls) b.scale = Math.min(1, b.scale + dt * 3);
   if (state.countdown > 0) return;
+  state.elapsed += dt;
 
   for (const b of state.balls) {
     b.x += b.vx * dt; b.y += b.vy * dt;
@@ -677,7 +717,7 @@ function render(t) {
     if (state.players === 2 && n >= 1) {
       const a = state.unicorns[0], b = state.unicorns[1];
       drawBigText(`👈 ${a.name}      ${b.name} 👉`, H * 0.62, Math.min(W, H) * 0.05);
-      drawBigText('arrows / left side          W A S D / right side', H * 0.69, Math.min(W, H) * 0.03);
+      drawBigText('W A S D / left side          arrows / right side', H * 0.69, Math.min(W, H) * 0.03);
     } else if (n >= 1) {
       drawBigText('Fly to the balls and gobble them up!', H * 0.62, Math.min(W, H) * 0.045);
     }
@@ -693,6 +733,7 @@ function render(t) {
 // ---------- HUD ----------
 const hud = { s1: $('#score-1'), s2: $('#score-2'), timer: $('#timer'), last: {} };
 function swatchBg(color) { return color.body === 'rainbow' ? `linear-gradient(135deg, ${MANE.join(',')})` : color.body; }
+function fmtTime(sec) { return sec.toFixed(1) + 's'; }
 function buildHud() {
   const els = [hud.s1, hud.s2];
   els.forEach((el, i) => {
@@ -712,7 +753,7 @@ function updateHud(force) {
   });
   let txt;
   if (state.mode === 'timer') { const s = Math.ceil(state.timeLeft); txt = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; hud.timer.classList.toggle('urgent', s <= 10 && state.countdown <= 0); }
-  else if (state.mode === 'eatall') txt = `${state.balls.length} left`;
+  else if (state.mode === 'eatall') txt = `${state.balls.length} left · ${fmtTime(state.elapsed)}`;
   else txt = '∞';
   if (force || hud.last.t !== txt) { hud.timer.textContent = txt; hud.last.t = txt; }
 }
@@ -728,7 +769,7 @@ function togglePause() {
 // ---------- setup screen ----------
 const pickers = [$('#picker-1'), $('#picker-2')];
 const previews = [];
-const MODE_HINTS = { timer: 'Gobble as many balls as you can in one minute!', eatall: 'Eat every single ball to finish the game!', free: 'Balls keep coming forever. Play as long as you like!' };
+const MODE_HINTS = { timer: `Gobble as many balls as you can in ${TIMER_SECONDS} seconds!`, eatall: 'Eat every single ball as fast as you can!', free: 'Balls keep coming forever. Play as long as you like!' };
 
 function escapeHtml(s) { return s.replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch])); }
 
@@ -788,7 +829,9 @@ muteBtn.addEventListener('click', () => { Sound.muted = !Sound.muted; save.muted
 let last = performance.now();
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now; const t = now / 1000;
-  update(dt, t); render(t);
+  // the page can start at 0x0 (hidden tab, app pane still opening) and some browsers skip the resize event
+  if (W !== window.innerWidth || H !== window.innerHeight) resize();
+  if (W > 1 && H > 1) { update(dt, t); render(t); }
   if (state.screen === 'setup') drawPreviews(t);
   requestAnimationFrame(frame);
 }

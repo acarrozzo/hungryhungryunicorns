@@ -1,6 +1,6 @@
 # 🦄 Hungry Hungry Unicorns 🦄
 
-A fairy game for two sisters. Fly your fairy-riding unicorn around the fairy garden and gobble up as many balls as you can while the fairy crowd cheers you on!
+A fairy game for kids. Fly your fairy-riding unicorn around the fairy garden and gobble up as many balls as you can while the fairy crowd cheers you on!
 
 ## How to play
 
@@ -18,15 +18,15 @@ Then open <http://localhost:8765> on the computer. To play on the iPad, make sur
 
 | Who | Keyboard | Mouse | Touch (1 player) | Touch (2 players) |
 | --- | --- | --- | --- | --- |
-| Unicorn 1 | Arrow keys | Unicorn flies to the mouse | Unicorn flies to your finger | Drag anywhere on the **left** half |
-| Unicorn 2 | W A S D | – | – | Drag anywhere on the **right** half |
+| Unicorn 1 (left) | W A S D | – | Unicorn flies to your finger | Drag anywhere on the **left** half |
+| Unicorn 2 (right) | Arrow keys | Unicorn flies to the mouse | – | Drag anywhere on the **right** half |
 
-In one-player mode, both arrow keys and WASD work. Press `Esc` or the ⏸ button to pause.
+In one-player mode, both arrow keys and WASD work, and the mouse drives the only unicorn. Press `Esc` or the ⏸ button to pause.
 
 ## Games
 
-- **⏱️ Timer** — one minute of gobbling. Most balls wins. Your best one-player score is remembered.
-- **🎯 Eat Them All** — the round ends when every ball is gone.
+- **⏱️ Timer** — 30 seconds of gobbling. Most balls wins. The best score is remembered.
+- **🎯 Eat Them All** — the clock counts up and the round ends when every ball is gone. Try to beat your fastest time, which is remembered separately for one and two players.
 - **♾️ Free Play** — balls keep coming forever. Tap ⏸ → "All Done" when you want to see the scores.
 
 ## Magic balls
@@ -38,6 +38,10 @@ Glowing balls give a fairy power for a few seconds:
 - 🧲 **MAGNET!** — balls fly toward you
 
 Every ball you eat makes your unicorn a little bigger and rounder.
+
+## Deploying
+
+The game is plain static files, so any static host works. It is deployed with Vercel; pushing to `main` redeploys it.
 
 ## Making changes
 

@@ -2,7 +2,8 @@
 html, body {
   margin: 0; height: 100%; overflow: hidden; background: #cdb4ff;
   font-family: 'Fredoka', 'Arial Rounded MT Bold', 'Comic Sans MS', system-ui, sans-serif;
-  touch-action: none; user-select: none; -webkit-user-select: none;
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  overscroll-behavior: none; position: fixed; width: 100%;
 }
 #game { position: fixed; inset: 0; display: block; touch-action: none; }
 #ui { position: fixed; inset: 0; pointer-events: none; }
@@ -60,7 +61,7 @@ button:active { transform: scale(.94); }
 
 #hud {
   position: absolute; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; align-items: flex-start;
-  padding: 10px 14px; pointer-events: none;
+  padding: calc(10px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) 10px calc(14px + env(safe-area-inset-left)); pointer-events: none;
 }
 #hud > * { pointer-events: auto; }
 .score {
